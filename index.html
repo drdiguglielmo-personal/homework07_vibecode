@@ -3,41 +3,323 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>homework07_vibecode</title>
+    <title>Notes and Reporting application for an NGO</title>
     <style>
       :root {
         color-scheme: dark;
       }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #0f172a;
+        background: #071530;
         color: #e2e8f0;
       }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 1.25rem;
+      }
       .card {
-        padding: 2rem;
+        background: #0b1d3e;
         border: 1px solid #334155;
-        border-radius: 12px;
-        text-align: center;
-        background: #111827;
+        border-radius: 14px;
+        padding: 1rem;
+        margin-bottom: 1rem;
       }
       h1 {
         margin: 0 0 0.5rem;
-        font-size: 1.5rem;
+        font-size: 1.55rem;
+      }
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.1rem;
       }
       p {
+        margin: 0.25rem 0;
+        color: #b7c5dd;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+      label {
+        font-size: 0.86rem;
+        color: #c6d6f2;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        width: 100%;
+        border: 1px solid #36507d;
+        background: #0f274f;
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        font: inherit;
+      }
+      textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+      button {
+        cursor: pointer;
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        font-weight: 600;
+      }
+      button:hover {
+        background: #1e40af;
+      }
+      .status {
+        margin-top: 0.75rem;
+        min-height: 1.1rem;
+      }
+      .records {
+        display: grid;
+        gap: 0.6rem;
+      }
+      .record {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.6rem;
+        background: #0b1730;
+      }
+      .small {
+        font-size: 0.82rem;
+        color: #9fb0cc;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+      .pill {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border: 1px solid #36507d;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        color: #d8e6ff;
+      }
+      .btn-secondary {
+        background: #0f274f;
+        border-color: #36507d;
+      }
+      .auth-actions {
+        display: flex;
+        gap: 0.6rem;
+      }
+      .auth-actions button {
+        flex: 1;
+      }
+      .inline-options {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .inline-options label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .inline-options input[type="checkbox"] {
+        width: auto;
+      }
+      select:disabled,
+      input:disabled,
+      input[readonly] {
+        opacity: 0.9;
+        cursor: not-allowed;
+      }
+      .field-hint {
+        font-size: 0.78rem;
+        color: #8fa3c4;
         margin: 0;
-        color: #94a3b8;
+      }
+      .assign-other {
+        margin-top: 0.5rem;
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
       }
     </style>
   </head>
   <body>
-    <main class="card">
-      <h1>It works live</h1>
-      <p>Vite static page is running locally.</p>
-    </main>
+    <div class="container">
+      <section class="card">
+        <h1>Notes and Reporting application for an NGO (MVP v1)</h1>
+        <p>Referral intake and contact/client tracking connected to Google Sheets.</p>
+      </section>
+
+      <section id="auth-card" class="card">
+        <form id="auth-form" class="grid">
+          <div class="field">
+            <label for="auth-username">Username</label>
+            <input id="auth-username" name="username" required />
+          </div>
+          <div id="auth-email-field" class="field hidden">
+            <label for="auth-email">Email</label>
+            <input id="auth-email" name="email" type="email" />
+          </div>
+          <div class="field">
+            <label for="auth-password">Password</label>
+            <input id="auth-password" name="password" type="password" required />
+          </div>
+          <div id="auth-roles-field" class="field full hidden">
+            <label>Roles</label>
+            <div class="inline-options">
+              <label><input id="role-admin" type="checkbox" /> Admin</label>
+              <label><input id="role-social-worker" type="checkbox" checked /> Social Worker</label>
+            </div>
+          </div>
+          <div id="auth-submit-row" class="field full">
+            <button id="auth-submit-btn" type="submit">Sign in</button>
+          </div>
+          <div id="auth-show-register-row" class="field full auth-actions">
+            <button id="show-register-btn" type="button" class="btn-secondary">Register</button>
+          </div>
+          <div id="auth-return-signin-row" class="field full hidden">
+            <button id="auth-return-signin-btn" type="button" class="btn-secondary">Return to sign in</button>
+          </div>
+        </form>
+        <p id="auth-status" class="status"></p>
+      </section>
+
+      <div id="app-content" class="hidden">
+        <section class="card">
+          <div class="row">
+            <div>
+              <h2>Signed-in User</h2>
+              <p id="user-summary"></p>
+              <p id="role-summary" class="small"></p>
+            </div>
+            <button id="logout-btn" type="button" class="btn-secondary">Log out</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>New Referral / Contact Intake</h2>
+          <form id="intake-form" class="grid">
+            <div class="field">
+              <label for="recordType">Record Type</label>
+              <select id="recordType" name="recordType">
+                <option value="contact">Contact</option>
+                <option value="client">Client</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="role">Your Role</label>
+              <select id="role" name="role"></select>
+            </div>
+
+            <div class="field">
+              <label for="clientName">Client Name</label>
+              <input id="clientName" name="clientName" required />
+            </div>
+            <div class="field">
+              <label for="clientPhone">Client Phone</label>
+              <input id="clientPhone" name="clientPhone" />
+            </div>
+
+            <div class="field">
+              <label for="referralAgency">Referral Agency / Source</label>
+              <input id="referralAgency" name="referralAgency" placeholder="Police Dept, JJC, Walk-in" />
+            </div>
+            <div class="field">
+              <label for="referralDate">Referral Date</label>
+              <input id="referralDate" name="referralDate" type="date" />
+            </div>
+
+            <div class="field">
+              <label for="referralContactPerson">Referral Contact Person</label>
+              <input id="referralContactPerson" name="referralContactPerson" />
+            </div>
+            <div class="field">
+              <label for="referralContactPhone">Referral Contact Phone</label>
+              <input id="referralContactPhone" name="referralContactPhone" />
+            </div>
+
+            <div class="field">
+              <label for="referralContactEmail">Referral Contact Email</label>
+              <input id="referralContactEmail" name="referralContactEmail" type="email" />
+            </div>
+            <div class="field">
+              <label for="riskLevel">Risk / Threat Level</label>
+              <select id="riskLevel" name="riskLevel">
+                <option value="unknown">Unknown</option>
+                <option value="needs_urgent_help">Needs urgent help</option>
+                <option value="not_at_risk">Not at risk</option>
+                <option value="low_risk">Low risk</option>
+                <option value="high_risk">High risk</option>
+                <option value="threat_to_others">Threat to others</option>
+                <option value="threat_to_themselves">Threat to themselves</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="underSupervision">Under Supervision?</label>
+              <select id="underSupervision" name="underSupervision">
+                <option value="">Unknown</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="assignedTo">Assign client to</label>
+              <select id="assignedTo" name="assignedTo"></select>
+              <div id="assignedTo-other-wrap" class="field hidden assign-other">
+                <label for="assignedToOther">Or enter username if not in the list</label>
+                <input id="assignedToOther" type="text" autocomplete="off" placeholder="Exact Back4App login username" />
+              </div>
+              <p id="assignedTo-hint" class="field-hint"></p>
+            </div>
+
+            <div class="field full">
+              <label for="additionalInfo">Additional Information</label>
+              <textarea id="additionalInfo" name="additionalInfo"></textarea>
+            </div>
+            <div class="field full">
+              <label for="charges">Charges</label>
+              <textarea id="charges" name="charges"></textarea>
+            </div>
+
+            <div class="field full">
+              <button type="submit">Save Referral</button>
+            </div>
+          </form>
+          <p id="intake-status" class="status"></p>
+          <p id="duplicate-warning" class="status"></p>
+        </section>
+
+        <section class="card">
+          <h2>Recent Contacts / Clients</h2>
+          <div id="records" class="records"></div>
+        </section>
+      </div>
+    </div>
+    <script type="module" src="/main.js"></script>
   </body>
 </html>
