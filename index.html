@@ -153,8 +153,95 @@
         color: #8fa3c4;
         margin: 0;
       }
-      .assign-other {
+      .subhead {
+        margin: 0.75rem 0 0.45rem;
+        font-size: 0.95rem;
+        color: #dbe7ff;
+      }
+      .category-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        margin: 0.35rem 0 0.75rem;
+      }
+      .category-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.55rem;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        background: #0b1730;
+      }
+      .category-row input[type="text"] {
+        flex: 1;
+        min-width: 140px;
+      }
+      .category-row .row-actions {
+        display: flex;
+        gap: 0.4rem;
+        flex-shrink: 0;
+      }
+      .category-row .row-actions button {
+        width: auto;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.82rem;
+      }
+      .category-checkboxes {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 0.5rem;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        background: #0b1730;
+      }
+      .category-checkboxes label {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.86rem;
+        cursor: pointer;
+      }
+      .category-checkboxes input[type="checkbox"] {
+        width: auto;
+      }
+      .timelog-list {
+        display: grid;
+        gap: 0.5rem;
         margin-top: 0.5rem;
+      }
+      .timelog-item {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        background: #0b1730;
+      }
+      .timelog-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.35rem;
+      }
+      .record-inactive {
+        opacity: 0.78;
+        border-style: dashed;
+      }
+      .settings-inline {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 0.75rem;
+      }
+      .settings-inline .field {
+        flex: 1;
+        min-width: 160px;
+      }
+      .settings-inline button {
+        width: auto;
       }
       @media (max-width: 760px) {
         .grid {
@@ -171,7 +258,7 @@
     <div class="container">
       <section class="card">
         <h1>Notes and Reporting application for an NGO (MVP v1)</h1>
-        <p>Referral intake and contact/client tracking connected to Google Sheets.</p>
+        <p>Referral intake, time logging, and contact/client tracking.</p>
       </section>
 
       <section id="auth-card" class="card">
@@ -218,6 +305,19 @@
             </div>
             <button id="logout-btn" type="button" class="btn-secondary">Log out</button>
           </div>
+        </section>
+
+        <section class="card">
+          <h2>Contact auto-inactive</h2>
+          <p class="small">0 for no auto-inactive rule</p>
+          <div class="settings-inline">
+            <div class="field">
+              <label for="inactive-after-days">Days since last update</label>
+              <input id="inactive-after-days" type="number" min="0" max="3650" step="1" value="90" />
+            </div>
+            <button id="save-inactive-settings-btn" type="button" class="btn-secondary">Save rule</button>
+          </div>
+          <p id="inactive-settings-status" class="status"></p>
         </section>
 
         <section class="card">
@@ -290,10 +390,6 @@
             <div class="field full">
               <label for="assignedTo">Assign client to</label>
               <select id="assignedTo" name="assignedTo"></select>
-              <div id="assignedTo-other-wrap" class="field hidden assign-other">
-                <label for="assignedToOther">Or enter username if not in the list</label>
-                <input id="assignedToOther" type="text" autocomplete="off" placeholder="Exact Back4App login username" />
-              </div>
               <p id="assignedTo-hint" class="field-hint"></p>
             </div>
 
@@ -312,6 +408,50 @@
           </form>
           <p id="intake-status" class="status"></p>
           <p id="duplicate-warning" class="status"></p>
+        </section>
+
+        <section class="card">
+          <h2>Time logging</h2>
+          <p class="small">
+            Log hours and tag one or more activity categories. Categories are shared and can be edited below.
+            Google Calendar integration can be added later as an export or sync.
+          </p>
+          <h3 class="subhead">Activity categories</h3>
+          <div id="time-categories-list" class="category-list"></div>
+          <div class="field full">
+            <label for="new-time-category">Add category</label>
+            <div class="row" style="align-items: flex-end">
+              <input id="new-time-category" type="text" placeholder="e.g. Home visit follow-up" style="flex: 1" />
+              <button id="add-time-category-btn" type="button" class="btn-secondary" style="width: auto">Add</button>
+            </div>
+          </div>
+          <h3 class="subhead">New entry</h3>
+          <form id="timelog-form" class="grid">
+            <div class="field">
+              <label for="timelog-date">Date</label>
+              <input id="timelog-date" name="timelogDate" type="date" required />
+            </div>
+            <div class="field">
+              <label for="timelog-hours">Hours</label>
+              <input id="timelog-hours" name="timelogHours" type="number" min="0.25" step="0.25" value="1" required />
+            </div>
+            <div class="field full">
+              <label>Categories (select one or more)</label>
+              <div id="time-category-checkboxes" class="category-checkboxes">
+                <span class="small">Sign in to load categories.</span>
+              </div>
+            </div>
+            <div class="field full">
+              <label for="timelog-notes">What you did (optional)</label>
+              <textarea id="timelog-notes" name="timelogNotes" placeholder="Brief description of the activity"></textarea>
+            </div>
+            <div class="field full">
+              <button type="submit">Save time entry</button>
+            </div>
+          </form>
+          <p id="timelog-status" class="status"></p>
+          <h3 class="subhead">Your recent entries</h3>
+          <div id="time-logs-list" class="timelog-list"></div>
         </section>
 
         <section class="card">
