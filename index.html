@@ -230,6 +230,56 @@
         opacity: 0.78;
         border-style: dashed;
       }
+      .record-actions {
+        margin-top: 0.45rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .record-actions button {
+        width: auto;
+      }
+      .notes-wrap {
+        margin-top: 0.55rem;
+        padding-top: 0.55rem;
+        border-top: 1px solid #243556;
+      }
+      .sbpd-fields-grid {
+        gap: 0.35rem 0.75rem;
+      }
+      .sbpd-fields-grid .field {
+        margin-bottom: 0;
+      }
+      .sbpd-fields-grid label {
+        font-size: 0.82rem;
+      }
+      .sbpd-fields-grid input,
+      .sbpd-fields-grid select,
+      .sbpd-fields-grid textarea {
+        padding: 0.35rem 0.45rem;
+        font-size: 0.88rem;
+      }
+      .notes-list {
+        display: grid;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      .note-item {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.5rem 0.6rem;
+        background: #0a1428;
+      }
+      .note-meta {
+        font-size: 0.78rem;
+        color: #9fb0cc;
+        margin-bottom: 0.3rem;
+      }
+      .note-text {
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+        color: #e2e8f0;
+      }
       .settings-inline {
         display: flex;
         flex-wrap: wrap;
@@ -402,6 +452,52 @@
               <textarea id="charges" name="charges"></textarea>
             </div>
 
+            <h3 class="subhead full">SBPD / police referral reporting (optional)</h3>
+            <div class="field">
+              <label for="dateContactAttempted">Date Contact Attempted</label>
+              <input id="dateContactAttempted" name="dateContactAttempted" type="date" />
+            </div>
+            <div class="field">
+              <label for="contactAttemptMade">Contact Status</label>
+              <select id="contactAttemptMade" name="contactAttemptMade">
+                <option value="">—</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="contactMadeWithWhom">If Contact Made, with whom</label>
+              <input id="contactMadeWithWhom" name="contactMadeWithWhom" type="text" />
+            </div>
+            <div class="field">
+              <label for="sbpdAddressCorrect">Is address provided by SBPD correct?</label>
+              <select id="sbpdAddressCorrect" name="sbpdAddressCorrect">
+                <option value="">—</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="sbpdCorrectedAddress">If not, provide correct address</label>
+              <textarea id="sbpdCorrectedAddress" name="sbpdCorrectedAddress" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <label for="detroitStyleCustomCandidate">Candidate for Detroit-Style Custom?</label>
+              <select id="detroitStyleCustomCandidate" name="detroitStyleCustomCandidate">
+                <option value="">—</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="retaliationConcerns">Any Retaliation Concerns?</label>
+              <select id="retaliationConcerns" name="retaliationConcerns">
+                <option value="">—</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+
             <div class="field full">
               <button type="submit">Save Referral</button>
             </div>
@@ -455,8 +551,128 @@
         </section>
 
         <section class="card">
+          <h2>Reports (Contacts / Clients by Source)</h2>
+          <div class="settings-inline">
+            <div class="field">
+              <label for="report-period-type">Time period</label>
+              <select id="report-period-type" name="reportPeriodType">
+                <option value="week">Week</option>
+                <option value="month" selected>Month</option>
+                <option value="year">Year</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="report-start-date">Start date</label>
+              <input id="report-start-date" name="reportStartDate" type="date" />
+            </div>
+            <div class="field hidden" id="report-end-date-wrap">
+              <label for="report-end-date">End date</label>
+              <input id="report-end-date" name="reportEndDate" type="date" />
+            </div>
+            <div class="field">
+              <label for="report-mode">Report</label>
+              <select id="report-mode" name="reportMode">
+                <option value="contacts">Contacts</option>
+                <option value="clients" selected>Clients</option>
+                <option value="both">Contacts + Clients</option>
+              </select>
+            </div>
+            <div class="field">
+              <label style="flex-direction: row; align-items: center; gap: 0.45rem">
+                <input id="report-include-inactive" type="checkbox" />
+                Include inactive
+              </label>
+            </div>
+            <button id="generate-report-btn" type="button" class="btn-secondary" style="width: auto">
+              Generate
+            </button>
+          </div>
+          <div class="row" style="margin-top: 0.75rem">
+            <div style="flex: 1">
+              <p id="report-status" class="status"></p>
+            </div>
+            <button id="export-report-pdf-btn" type="button" class="btn-secondary" style="width: auto">
+              Export PDF (Print)
+            </button>
+          </div>
+          <div id="report-preview" style="margin-top: 0.85rem"></div>
+        </section>
+
+        <section class="card">
+          <h2>Report (Hours by Category)</h2>
+          <p class="small">
+            Summarize your time logs by activity category for a period. Export as PDF (print dialog) or JPG.
+          </p>
+          <div class="settings-inline">
+            <div class="field">
+              <label for="time-report-period-type">Time period</label>
+              <select id="time-report-period-type" name="timeReportPeriodType">
+                <option value="week">Week</option>
+                <option value="month" selected>Month</option>
+                <option value="year">Year</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="time-report-start-date">Start date</label>
+              <input id="time-report-start-date" name="timeReportStartDate" type="date" />
+            </div>
+            <div class="field hidden" id="time-report-end-date-wrap">
+              <label for="time-report-end-date">End date</label>
+              <input id="time-report-end-date" name="timeReportEndDate" type="date" />
+            </div>
+            <button id="generate-time-report-btn" type="button" class="btn-secondary" style="width: auto">
+              Generate
+            </button>
+          </div>
+          <div class="row" style="margin-top: 0.75rem">
+            <div style="flex: 1">
+              <p id="time-report-status" class="status"></p>
+            </div>
+            <button id="export-time-report-pdf-btn" type="button" class="btn-secondary" style="width: auto">
+              Export PDF (Print)
+            </button>
+            <button id="export-time-report-jpg-btn" type="button" class="btn-secondary" style="width: auto">
+              Export JPG
+            </button>
+          </div>
+          <div id="time-report-preview" style="margin-top: 0.85rem"></div>
+        </section>
+
+        <section class="card">
+          <h2>Police department (SBPD) CSV export</h2>
+          <p class="small">
+            For contacts referred by SBPD / Santa Barbara Police: load recent referrals, select the rows to include,
+            and download a CSV for reporting. Run as often as needed (e.g. daily). Edit SBPD fields on each contact
+            card or in the optional SBPD section on the intake form.
+          </p>
+          <div class="settings-inline">
+            <div class="field">
+              <label for="sbpd-csv-days">Days to look back</label>
+              <input id="sbpd-csv-days" type="number" min="1" max="365" step="1" value="14" />
+            </div>
+            <button id="sbpd-csv-fetch-btn" type="button" class="btn-secondary" style="width: auto">
+              Load SBPD contacts
+            </button>
+            <button id="sbpd-csv-select-all" type="button" class="btn-secondary" style="width: auto">
+              Select all
+            </button>
+            <button id="sbpd-csv-deselect-all" type="button" class="btn-secondary" style="width: auto">
+              Deselect all
+            </button>
+            <button id="sbpd-csv-download-btn" type="button" class="btn-secondary" style="width: auto">
+              Download CSV
+            </button>
+          </div>
+          <p id="sbpd-csv-status" class="status"></p>
+          <div id="sbpd-csv-table-wrap"></div>
+        </section>
+
+        <section class="card">
           <h2>Recent Contacts / Clients</h2>
           <div id="records" class="records"></div>
+          <p id="records-status" class="status"></p>
         </section>
       </div>
     </div>

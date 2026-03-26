@@ -21,6 +21,7 @@ const intakeForm = document.getElementById("intake-form");
 const intakeStatusEl = document.getElementById("intake-status");
 const duplicateWarningEl = document.getElementById("duplicate-warning");
 const recordsEl = document.getElementById("records");
+const recordsStatusEl = document.getElementById("records-status");
 const assignedToSelect = document.getElementById("assignedTo");
 const assignedToHintEl = document.getElementById("assignedTo-hint");
 const timeCategoriesListEl = document.getElementById("time-categories-list");
@@ -36,6 +37,41 @@ const timeLogsListEl = document.getElementById("time-logs-list");
 const inactiveAfterDaysInput = document.getElementById("inactive-after-days");
 const saveInactiveSettingsBtn = document.getElementById("save-inactive-settings-btn");
 const inactiveSettingsStatusEl = document.getElementById("inactive-settings-status");
+
+const reportPeriodTypeSelect = document.getElementById("report-period-type");
+const reportStartDateInput = document.getElementById("report-start-date");
+const reportEndDateWrap = document.getElementById("report-end-date-wrap");
+const reportEndDateInput = document.getElementById("report-end-date");
+const reportModeSelect = document.getElementById("report-mode");
+const reportIncludeInactiveCb = document.getElementById("report-include-inactive");
+const generateReportBtn = document.getElementById("generate-report-btn");
+const exportReportPdfBtn = document.getElementById("export-report-pdf-btn");
+const reportStatusEl = document.getElementById("report-status");
+const reportPreviewEl = document.getElementById("report-preview");
+
+const timeReportPeriodTypeSelect = document.getElementById("time-report-period-type");
+const timeReportStartDateInput = document.getElementById("time-report-start-date");
+const timeReportEndDateWrap = document.getElementById("time-report-end-date-wrap");
+const timeReportEndDateInput = document.getElementById("time-report-end-date");
+const generateTimeReportBtn = document.getElementById("generate-time-report-btn");
+const exportTimeReportPdfBtn = document.getElementById("export-time-report-pdf-btn");
+const exportTimeReportJpgBtn = document.getElementById("export-time-report-jpg-btn");
+const timeReportStatusEl = document.getElementById("time-report-status");
+const timeReportPreviewEl = document.getElementById("time-report-preview");
+
+/** Set when a time report is generated; used for JPG export and validation. */
+let lastTimeReportExport = null;
+
+/** Rows last loaded for SBPD CSV export (checkbox selection). */
+let sbpdCsvFetchedRows = [];
+
+const sbpdCsvDaysInput = document.getElementById("sbpd-csv-days");
+const sbpdCsvFetchBtn = document.getElementById("sbpd-csv-fetch-btn");
+const sbpdCsvSelectAllBtn = document.getElementById("sbpd-csv-select-all");
+const sbpdCsvDeselectAllBtn = document.getElementById("sbpd-csv-deselect-all");
+const sbpdCsvDownloadBtn = document.getElementById("sbpd-csv-download-btn");
+const sbpdCsvStatusEl = document.getElementById("sbpd-csv-status");
+const sbpdCsvTableWrap = document.getElementById("sbpd-csv-table-wrap");
 
 const directSheetsApiUrl = import.meta.env.VITE_SHEETS_API_URL?.trim();
 const isLocalDev = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -59,6 +95,7 @@ const staffDirectoryClassName =
     : String(rawStaffDirectoryClass || "StaffDirectory").trim() || "StaffDirectory";
 const referralSummaryClassName =
   String(import.meta.env.VITE_REFERRAL_SUMMARY_CLASS || "ReferralSummary").trim() || "ReferralSummary";
+const caseNoteClassName = String(import.meta.env.VITE_CASE_NOTE_CLASS || "CaseNote").trim() || "CaseNote";
 const orgSettingsClassName =
   String(import.meta.env.VITE_ORG_SETTINGS_CLASS || "OrgSettings").trim() || "OrgSettings";
 /** Days without summary update before recordStatus → inactive (0 = off). Loaded from OrgSettings. */
@@ -67,6 +104,10 @@ let orgSettingsObjectId = null;
 const timeCategoryClassName =
   String(import.meta.env.VITE_TIME_CATEGORY_CLASS || "TimeCategory").trim() || "TimeCategory";
 const timeLogClassName = String(import.meta.env.VITE_TIME_LOG_CLASS || "TimeLog").trim() || "TimeLog";
+/** Match referralAgency for SBPD / Santa Barbara police CSV and optional intake fields. Regex string, case-insensitive. */
+const sbpdAgencyRegexSource =
+  String(import.meta.env.VITE_SBPD_AGENCY_REGEX || "SBPD|Santa Barbara Police|Santa Barbara PD").trim() ||
+  "SBPD";
 const DEFAULT_TIME_CATEGORY_NAMES = [
   "Mental Health Help",
   "Hazardous",
@@ -483,6 +524,44 @@ async function resolveAssignedUserPointer(username) {
   }
 }
 
+function isSbpdAgency(agency) {
+  const s = String(agency || "").trim();
+  if (!s) return false;
+  try {
+    return new RegExp(sbpdAgencyRegexSource, "i").test(s);
+  } catch {
+    return /sbpd/i.test(s) || /santa barbara police/i.test(s);
+  }
+}
+
+function normalizeYesNoString(v) {
+  if (v === true) return "Yes";
+  if (v === false) return "No";
+  const x = String(v || "").trim().toLowerCase();
+  if (x === "yes" || x === "y") return "Yes";
+  if (x === "no" || x === "n") return "No";
+  return "";
+}
+
+function applySbpdPoliceFieldsToBody(body, referralPayload) {
+  const d = String(referralPayload.dateContactAttempted || "").trim();
+  if (d) {
+    body.dateContactAttempted = { __type: "Date", iso: new Date(`${d}T12:00:00`).toISOString() };
+  }
+  const cm = normalizeYesNoString(referralPayload.contactAttemptMade);
+  if (cm) body.contactAttemptMade = cm;
+  const whom = String(referralPayload.contactMadeWithWhom || "").trim();
+  if (whom) body.contactMadeWithWhom = whom;
+  const ac = normalizeYesNoString(referralPayload.sbpdAddressCorrect);
+  if (ac) body.sbpdAddressCorrect = ac;
+  const addr = String(referralPayload.sbpdCorrectedAddress || "").trim();
+  if (addr) body.sbpdCorrectedAddress = addr;
+  const dc = normalizeYesNoString(referralPayload.detroitStyleCustomCandidate);
+  if (dc) body.detroitStyleCustomCandidate = dc;
+  const rc = normalizeYesNoString(referralPayload.retaliationConcerns);
+  if (rc) body.retaliationConcerns = rc;
+}
+
 async function createReferralSummary(referralPayload) {
   if (authEnvMissing() || !currentSessionToken || !currentUser) return;
   const assignedToUsername = String(referralPayload.assignedTo || "").trim();
@@ -505,6 +584,9 @@ async function createReferralSummary(referralPayload) {
     ACL: acl
   };
   if (assignedToUser) body.assignedToUser = assignedToUser;
+  if (isSbpdAgency(referralPayload.referralAgency)) {
+    applySbpdPoliceFieldsToBody(body, referralPayload);
+  }
   await back4AppRequest(`/classes/${encodeURIComponent(referralSummaryClassName)}`, {
     method: "POST",
     headers: {
@@ -622,7 +704,7 @@ async function fetchAssigneeNamesFromSheets() {
 async function checkPossibleDuplicate(clientName) {
   duplicateWarningEl.textContent = "";
   const normalized = normalizeName(clientName);
-  if (!normalized) return;
+  if (!normalized) return null;
   try {
     const data = await sheetsApiRequest("GET", {
       action: "findByName",
@@ -635,10 +717,12 @@ async function checkPossibleDuplicate(clientName) {
         `Possible duplicate found: ${firstMatch.clientName || "Unknown"}${firstMatch.updatedAt ? ` (updated ${new Date(firstMatch.updatedAt).toLocaleDateString()})` : ""}`,
         "#facc15"
       );
+      return firstMatch;
     }
   } catch {
     // Ignore duplicate check errors.
   }
+  return null;
 }
 
 function parseParseDate(val) {
@@ -649,6 +733,920 @@ function parseParseDate(val) {
   }
   const d = new Date(val);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseYMD(dateStr) {
+  const s = String(dateStr || "").trim();
+  if (!s.includes("-")) return null;
+  const parts = s.split("-").map((n) => Number(n));
+  if (parts.length !== 3) return null;
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function getReportRange(periodType, startDateStr, endDateStr) {
+  const start = parseYMD(startDateStr);
+  if (!start) return null;
+
+  let end;
+  if (periodType === "week") {
+    end = new Date(start);
+    end.setDate(end.getDate() + 7);
+  } else if (periodType === "month") {
+    const monthStart = new Date(start.getFullYear(), start.getMonth(), 1);
+    end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    return { start: monthStart, end };
+  } else if (periodType === "year") {
+    const yearStart = new Date(start.getFullYear(), 0, 1);
+    end = new Date(start.getFullYear() + 1, 0, 1);
+    return { start: yearStart, end };
+  } else {
+    const customEnd = parseYMD(endDateStr);
+    if (!customEnd) return null;
+    end = new Date(customEnd);
+    end.setDate(end.getDate() + 1);
+  }
+
+  return { start, end };
+}
+
+async function fetchReferralSummariesForReport(startIso, endIso, includeInactive) {
+  const where = {
+    createdAt: {
+      $gte: { __type: "Date", iso: startIso },
+      $lt: { __type: "Date", iso: endIso }
+    }
+  };
+  if (!includeInactive) where.recordStatus = "active";
+
+  const qs = new URLSearchParams({
+    limit: "1000",
+    keys: "referralAgency,recordType,createdAt",
+    where: JSON.stringify(where),
+    order: "-createdAt"
+  }).toString();
+
+  const data = await back4AppRequest(
+    `/classes/${encodeURIComponent(referralSummaryClassName)}?${qs}`,
+    {
+      method: "GET",
+      headers: { "X-Parse-Session-Token": currentSessionToken }
+    }
+  );
+
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function renderReportPreview({ fromDate, toDate, mode, includeInactive, breakdownRows, totals }) {
+  if (!reportPreviewEl) return;
+
+  const titleMode =
+    mode === "contacts" ? "Contacts" : mode === "clients" ? "Clients" : "Contacts + Clients";
+  const inactiveText = includeInactive ? "including inactive" : "active only";
+  const dateStr = `${fromDate.toLocaleDateString()} - ${toDate.toLocaleDateString()}`;
+
+  const tableRows = breakdownRows
+    .map((r) => {
+      const safeName = escapeHtml(r.source || "Unknown");
+      const c = r.contacts;
+      const cl = r.clients;
+      const main = r.main;
+      const barWidth = totals.maxMain > 0 ? Math.round((main / totals.maxMain) * 220) : 0;
+      const bar = `<div style="height:8px;background:#1d4ed8;border-radius:999px;width:${barWidth}px;"></div>`;
+
+      if (mode === "both") {
+        return `
+          <tr>
+            <td>${safeName}</td>
+            <td>${c}</td>
+            <td>${cl}</td>
+            <td>${main}</td>
+          </tr>
+        `;
+      }
+
+      return `
+        <tr>
+          <td>${safeName}</td>
+          <td>${main}</td>
+          <td>${bar}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const tableHeader =
+    mode === "both"
+      ? `<tr><th>Source</th><th>Contacts</th><th>Clients</th><th>Total</th></tr>`
+      : `<tr><th>Source</th><th>${titleMode}</th><th>Share</th></tr>`;
+
+  reportPreviewEl.innerHTML = `
+    <div class="record">
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <h3 style="margin:0 0 0.35rem 0;">${escapeHtml(titleMode)} by Source</h3>
+          <div class="small">${escapeHtml(dateStr)} • ${escapeHtml(inactiveText)}</div>
+        </div>
+        <div style="text-align:right;min-width:220px;">
+          <div class="small">Total contacts: <strong>${totals.contacts}</strong></div>
+          <div class="small">Total clients: <strong>${totals.clients}</strong></div>
+          <div class="small">Report total: <strong>${totals.main}</strong></div>
+        </div>
+      </div>
+      <div style="margin-top:0.8rem;">
+        <table style="width:100%;border-collapse:collapse;color:#e2e8f0;">
+          <thead>${tableHeader}</thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function generateReportPreview() {
+  if (!reportPeriodTypeSelect || !reportStartDateInput || !reportPreviewEl) return;
+  const periodType = reportPeriodTypeSelect.value;
+  const startDateStr = reportStartDateInput.value;
+  const endDateStr = reportEndDateInput?.value || "";
+
+  if (!startDateStr) {
+    setStatus(reportStatusEl, "Pick a start date.", "#f87171");
+    return;
+  }
+
+  const range = getReportRange(periodType, startDateStr, endDateStr);
+  if (!range) {
+    setStatus(reportStatusEl, "Invalid date range.", "#f87171");
+    return;
+  }
+
+  const includeInactive = Boolean(reportIncludeInactiveCb?.checked);
+  const mode = reportModeSelect?.value || "clients";
+
+  setStatus(reportStatusEl, "Loading data...", "#93c5fd");
+  try {
+    const startIso = range.start.toISOString();
+    const endIso = range.end.toISOString();
+    const rows = await fetchReferralSummariesForReport(startIso, endIso, includeInactive);
+
+    const breakdown = new Map();
+    let totals = { contacts: 0, clients: 0, main: 0, maxMain: 0 };
+
+    for (const r of rows) {
+      const agency = String(r.referralAgency || "Unknown").trim() || "Unknown";
+      const recordType = String(r.recordType || "contact").toLowerCase();
+      const isContact = recordType === "contact";
+      const isClient = recordType === "client";
+
+      if (!breakdown.has(agency)) {
+        breakdown.set(agency, { source: agency, contacts: 0, clients: 0, main: 0 });
+      }
+      const b = breakdown.get(agency);
+      if (isContact) {
+        b.contacts += 1;
+        totals.contacts += 1;
+      } else if (isClient) {
+        b.clients += 1;
+        totals.clients += 1;
+      }
+    }
+
+    for (const b of breakdown.values()) {
+      if (mode === "contacts") b.main = b.contacts;
+      else if (mode === "clients") b.main = b.clients;
+      else b.main = b.contacts + b.clients;
+      totals.main += b.main;
+      totals.maxMain = Math.max(totals.maxMain, b.main);
+    }
+
+    const breakdownRows = Array.from(breakdown.values()).sort((a, b) => b.main - a.main || a.source.localeCompare(b.source));
+
+    renderReportPreview({
+      fromDate: range.start,
+      toDate: new Date(range.end.getTime() - 86400000),
+      mode,
+      includeInactive,
+      breakdownRows,
+      totals
+    });
+
+    setStatus(reportStatusEl, "Report ready.", "#4ade80");
+  } catch (e) {
+    setStatus(reportStatusEl, `Report failed: ${e.message}`, "#f87171");
+  }
+}
+
+function exportReportPdfViaPrint() {
+  if (!reportPreviewEl) return;
+  const content = reportPreviewEl.innerHTML;
+  if (!content || !content.trim()) return;
+
+  const w = window.open("", "_blank", "width=1000,height=800");
+  if (!w) return;
+
+  w.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>NGO Report</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; padding: 24px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+          th, td { border-bottom: 1px solid #ddd; padding: 10px 6px; text-align: left; }
+          th { color: #111; font-size: 14px; }
+          td { font-size: 13px; }
+          .record { border: 1px solid #ddd; border-radius: 10px; padding: 14px; }
+          .small { color: #555; font-size: 12px; margin-top: 4px; }
+          h3 { margin: 0 0 6px 0; }
+        </style>
+      </head>
+      <body>
+        ${content}
+      </body>
+    </html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+const TIME_REPORT_CHART_COLORS = [
+  "#1d4ed8",
+  "#059669",
+  "#d97706",
+  "#7c3aed",
+  "#db2777",
+  "#0d9488",
+  "#b45309",
+  "#4f46e5"
+];
+
+function timeCategoryLabelFromPointer(c) {
+  if (!c || typeof c !== "object") return "";
+  if (c.name) return String(c.name).trim() || "";
+  const id = c.objectId;
+  if (id) {
+    const found = timeCategoriesCache.find((x) => x.objectId === id);
+    return found?.name ? String(found.name).trim() : "";
+  }
+  return "";
+}
+
+async function fetchTimeLogsForReport(startIso, endIso) {
+  if (!currentUser?.objectId || !currentSessionToken) return [];
+  const where = {
+    user: {
+      __type: "Pointer",
+      className: "_User",
+      objectId: currentUser.objectId
+    },
+    workDate: {
+      $gte: { __type: "Date", iso: startIso },
+      $lt: { __type: "Date", iso: endIso }
+    }
+  };
+  const qs = new URLSearchParams({
+    limit: "1000",
+    order: "-workDate,-createdAt",
+    keys: "workDate,durationMinutes,categories",
+    where: JSON.stringify(where),
+    include: "categories"
+  }).toString();
+  const enc = encodeURIComponent(timeLogClassName);
+  const data = await back4AppRequest(`/classes/${enc}?${qs}`, {
+    method: "GET",
+    headers: { "X-Parse-Session-Token": currentSessionToken }
+  });
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function renderTimeReportPreview({ fromDate, toDate, breakdownRows, totalMinutes, entryCount }) {
+  if (!timeReportPreviewEl) return;
+
+  const dateStr = `${fromDate.toLocaleDateString()} – ${toDate.toLocaleDateString()}`;
+  const maxMin = breakdownRows.length ? Math.max(...breakdownRows.map((r) => r.minutes)) : 0;
+
+  const tableRows = breakdownRows.length
+    ? breakdownRows
+        .map((r) => {
+          const safeName = escapeHtml(r.label || "Unknown");
+          const pct =
+            totalMinutes > 0 ? Math.round((r.minutes / totalMinutes) * 1000) / 10 : 0;
+          const barWidth = maxMin > 0 ? Math.round((r.minutes / maxMin) * 220) : 0;
+          const bar = `<div style="height:8px;background:#1d4ed8;border-radius:999px;width:${barWidth}px;"></div>`;
+          return `
+        <tr>
+          <td>${safeName}</td>
+          <td>${escapeHtml(formatDurationMinutes(Math.round(r.minutes)))}</td>
+          <td>${pct}%</td>
+          <td>${bar}</td>
+        </tr>
+      `;
+        })
+        .join("")
+    : `<tr><td colspan="4" class="small" style="padding:0.75rem 0">No time entries in this period.</td></tr>`;
+
+  timeReportPreviewEl.innerHTML = `
+    <div class="record">
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <h3 style="margin:0 0 0.35rem 0;">Hours by category</h3>
+          <div class="small">${escapeHtml(dateStr)}</div>
+        </div>
+        <div style="text-align:right;min-width:200px;">
+          <div class="small">Total logged: <strong>${escapeHtml(formatDurationMinutes(totalMinutes))}</strong></div>
+          <div class="small">Entries in range: <strong>${entryCount}</strong></div>
+        </div>
+      </div>
+      <div style="margin-top:0.8rem;">
+        <table style="width:100%;border-collapse:collapse;color:#e2e8f0;">
+          <thead>
+            <tr><th>Category</th><th>Time</th><th>Share</th><th></th></tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function generateTimeReportPreview() {
+  if (!timeReportPeriodTypeSelect || !timeReportStartDateInput || !timeReportPreviewEl) return;
+  const periodType = timeReportPeriodTypeSelect.value;
+  const startDateStr = timeReportStartDateInput.value;
+  const endDateStr = timeReportEndDateInput?.value || "";
+
+  if (!startDateStr) {
+    setStatus(timeReportStatusEl, "Pick a start date.", "#f87171");
+    return;
+  }
+
+  const range = getReportRange(periodType, startDateStr, endDateStr);
+  if (!range) {
+    setStatus(timeReportStatusEl, "Invalid date range.", "#f87171");
+    return;
+  }
+
+  if (!currentSessionToken || !currentUser?.objectId) {
+    setStatus(timeReportStatusEl, "Sign in to run this report.", "#f87171");
+    return;
+  }
+
+  setStatus(timeReportStatusEl, "Loading time logs...", "#93c5fd");
+  try {
+    await fetchTimeCategories();
+    const startIso = range.start.toISOString();
+    const endIso = range.end.toISOString();
+    const rows = await fetchTimeLogsForReport(startIso, endIso);
+
+    const byCat = new Map();
+    for (const row of rows) {
+      const mins = Number(row.durationMinutes) || 0;
+      const cats = Array.isArray(row.categories) ? row.categories : [];
+      if (!cats.length) {
+        const k = "Uncategorized";
+        byCat.set(k, (byCat.get(k) || 0) + mins);
+        continue;
+      }
+      const share = mins / cats.length;
+      for (const c of cats) {
+        const label = timeCategoryLabelFromPointer(c) || "Unknown";
+        byCat.set(label, (byCat.get(label) || 0) + share);
+      }
+    }
+
+    let totalMinutes = 0;
+    for (const row of rows) {
+      totalMinutes += Number(row.durationMinutes) || 0;
+    }
+
+    const breakdownRows = Array.from(byCat.entries())
+      .map(([label, minutes]) => ({ label, minutes }))
+      .sort((a, b) => b.minutes - a.minutes || a.label.localeCompare(b.label));
+
+    const displayEnd = new Date(range.end.getTime() - 86400000);
+
+    if (!rows.length) {
+      lastTimeReportExport = null;
+    } else {
+      lastTimeReportExport = {
+        fromDate: range.start,
+        toDate: displayEnd,
+        breakdownRows: breakdownRows.map((r) => ({ label: r.label, minutes: r.minutes })),
+        totalMinutes,
+        entryCount: rows.length
+      };
+    }
+
+    renderTimeReportPreview({
+      fromDate: range.start,
+      toDate: displayEnd,
+      breakdownRows,
+      totalMinutes,
+      entryCount: rows.length
+    });
+
+    setStatus(
+      timeReportStatusEl,
+      rows.length ? "Report ready." : "No time entries in this range.",
+      rows.length ? "#4ade80" : "#fbbf24"
+    );
+  } catch (e) {
+    lastTimeReportExport = null;
+    setStatus(timeReportStatusEl, `Report failed: ${e.message}`, "#f87171");
+  }
+}
+
+function exportTimeReportPdfViaPrint() {
+  if (!timeReportPreviewEl) return;
+  const content = timeReportPreviewEl.innerHTML;
+  if (!content || !content.trim()) return;
+
+  const w = window.open("", "_blank", "width=1000,height=800");
+  if (!w) return;
+
+  w.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Hours by category</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; padding: 24px; background: #fff; color: #111; }
+          .record, .record * { color: #111 !important; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; color: #111 !important; }
+          th, td { border-bottom: 1px solid #ddd; padding: 10px 6px; text-align: left; }
+          th { font-size: 14px; }
+          td { font-size: 13px; }
+          .record { border: 1px solid #ddd; border-radius: 10px; padding: 14px; }
+          .small { color: #555 !important; font-size: 12px; margin-top: 4px; }
+          h3 { margin: 0 0 6px 0; }
+        </style>
+      </head>
+      <body>
+        ${content}
+      </body>
+    </html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+function exportTimeReportJpg() {
+  if (!lastTimeReportExport) {
+    setStatus(timeReportStatusEl, "Generate the report first.", "#f87171");
+    return;
+  }
+  const { fromDate, toDate, breakdownRows, totalMinutes, entryCount } = lastTimeReportExport;
+  const rows = breakdownRows.filter((r) => r && typeof r.minutes === "number" && r.minutes > 0);
+  if (!rows.length || totalMinutes <= 0) {
+    setStatus(timeReportStatusEl, "No data to export.", "#f87171");
+    return;
+  }
+
+  const pad = 40;
+  const W = 880;
+  const rowH = 36;
+  const titleBlock = 72;
+  const chartTop = titleBlock + rows.length * rowH + 32;
+  const chartH = 200;
+  const H = chartTop + chartH + pad;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 22px Arial, Helvetica, sans-serif";
+  ctx.fillText("Hours by category", pad, 38);
+
+  ctx.font = "14px Arial, Helvetica, sans-serif";
+  ctx.fillStyle = "#4b5563";
+  const rangeStr = `${fromDate.toLocaleDateString()} – ${toDate.toLocaleDateString()}`;
+  ctx.fillText(rangeStr, pad, 62);
+  ctx.fillText(
+    `Total logged: ${formatDurationMinutes(totalMinutes)} • Entries: ${entryCount}`,
+    pad,
+    82
+  );
+
+  const maxMin = Math.max(...rows.map((r) => r.minutes), 1);
+  let y = titleBlock;
+  ctx.font = "13px Arial, Helvetica, sans-serif";
+  rows.forEach((r, i) => {
+    const pct = totalMinutes > 0 ? Math.round((r.minutes / totalMinutes) * 1000) / 10 : 0;
+    const label =
+      r.label.length > 42 ? `${r.label.slice(0, 40)}…` : r.label;
+    ctx.fillStyle = "#111827";
+    ctx.fillText(label, pad, y + 22);
+    const tStr = `${formatDurationMinutes(Math.round(r.minutes))} (${pct}%)`;
+    ctx.fillStyle = "#6b7280";
+    ctx.textAlign = "right";
+    ctx.fillText(tStr, W - pad, y + 22);
+    ctx.textAlign = "left";
+
+    const barX = pad;
+    const barY = y + 26;
+    const barW = (W - 2 * pad) * (r.minutes / maxMin);
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillRect(barX, barY, W - 2 * pad, 6);
+    ctx.fillStyle = TIME_REPORT_CHART_COLORS[i % TIME_REPORT_CHART_COLORS.length];
+    ctx.fillRect(barX, barY, Math.max(barW, 2), 6);
+
+    y += rowH;
+  });
+
+  const chartPad = pad;
+  const cx = chartPad;
+  const cy = chartTop;
+  const cSize = Math.min(W - 2 * chartPad, chartH - 20);
+  const cx0 = cx + (W - 2 * chartPad - cSize) / 2;
+  const cy0 = cy + 10;
+
+  let ang = -Math.PI / 2;
+  const cxPie = cx0 + cSize / 2;
+  const cyPie = cy0 + cSize / 2;
+  const rad = cSize * 0.36;
+
+  rows.forEach((r, i) => {
+    const slice = (r.minutes / totalMinutes) * 2 * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(cxPie, cyPie);
+    ctx.arc(cxPie, cyPie, rad, ang, ang + slice);
+    ctx.closePath();
+    ctx.fillStyle = TIME_REPORT_CHART_COLORS[i % TIME_REPORT_CHART_COLORS.length];
+    ctx.fill();
+    ang += slice;
+  });
+
+  ctx.beginPath();
+  ctx.arc(cxPie, cyPie, rad * 0.55, 0, 2 * Math.PI);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) {
+        setStatus(timeReportStatusEl, "Could not create image.", "#f87171");
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hours-by-category-${fromDate.toISOString().slice(0, 10)}.jpg`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(timeReportStatusEl, "JPG downloaded.", "#4ade80");
+    },
+    "image/jpeg",
+    0.92
+  );
+}
+
+async function convertSummaryContactToClient(summaryObjectId) {
+  if (!summaryObjectId || !currentSessionToken) return;
+  const enc = encodeURIComponent(referralSummaryClassName);
+  const convertedBy = String(currentUser?.username || currentUser?.email || "unknown_user");
+  setStatus(recordsStatusEl, "Converting contact to client...", "#93c5fd");
+  try {
+    await back4AppRequest(`/classes/${enc}/${summaryObjectId}`, {
+      method: "PUT",
+      headers: {
+        "X-Parse-Session-Token": currentSessionToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        recordType: "client",
+        caseStatus: "accepted_client",
+        convertedAt: { __type: "Date", iso: new Date().toISOString() },
+        convertedBy,
+        lastModifiedBy: convertedBy
+      })
+    });
+    setStatus(recordsStatusEl, "Converted to client.", "#4ade80");
+    await loadRecentRecords();
+  } catch (error) {
+    setStatus(recordsStatusEl, `Convert failed: ${error.message}`, "#f87171");
+  }
+}
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatDateForPoliceCsv(val) {
+  const d =
+    typeof val === "object" && val && val.iso
+      ? new Date(val.iso)
+      : parseParseDate(val);
+  if (!d || Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString();
+}
+
+function sbpdDateValueForInput(record) {
+  const d = record?.dateContactAttempted;
+  if (!d) return "";
+  if (typeof d === "object" && d.iso) return d.iso.slice(0, 10);
+  const parsed = parseParseDate(d);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function formatSbpdAddressColumn(row) {
+  const correct = normalizeYesNoString(row.sbpdAddressCorrect);
+  const corr = String(row.sbpdCorrectedAddress || "").trim();
+  if (!correct && !corr) return "";
+  if (correct === "Yes") return corr ? `Yes — ${corr}` : "Yes";
+  if (correct === "No") return corr ? `No — ${corr}` : "No";
+  return corr || "";
+}
+
+function escapeCsvCell(value) {
+  const s = String(value ?? "");
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+const SBPD_CSV_HEADERS = [
+  "Contact name",
+  "Date Contact Attempted",
+  "LastModifiedByUser",
+  "Contact Status",
+  "If Contact Made, with whom",
+  "Is Address provided by SBPD correct? If not, provide correct address",
+  "Candidate for Detroit-Style Custom?",
+  "Any Retaliation Concerns?"
+];
+
+function referralSummaryRowToCsvLine(row) {
+  const cells = [
+    row.clientName || "",
+    formatDateForPoliceCsv(row.dateContactAttempted),
+    row.lastModifiedBy || "",
+    normalizeYesNoString(row.contactAttemptMade) || "",
+    String(row.contactMadeWithWhom || "").trim(),
+    formatSbpdAddressColumn(row),
+    normalizeYesNoString(row.detroitStyleCustomCandidate) || "",
+    normalizeYesNoString(row.retaliationConcerns) || ""
+  ];
+  return cells.map(escapeCsvCell).join(",");
+}
+
+async function fetchSbpdReferralSummariesForCsv(startIso, endIso) {
+  if (!currentSessionToken) return [];
+  let regexPattern = sbpdAgencyRegexSource;
+  try {
+    new RegExp(regexPattern, "i");
+  } catch {
+    regexPattern = "SBPD";
+  }
+  const where = {
+    recordType: "contact",
+    referralAgency: { $regex: regexPattern, $options: "i" },
+    updatedAt: {
+      $gte: { __type: "Date", iso: startIso },
+      $lte: { __type: "Date", iso: endIso }
+    }
+  };
+  const keys = [
+    "objectId",
+    "clientName",
+    "referralAgency",
+    "recordType",
+    "lastModifiedBy",
+    "updatedAt",
+    "dateContactAttempted",
+    "contactAttemptMade",
+    "contactMadeWithWhom",
+    "sbpdAddressCorrect",
+    "sbpdCorrectedAddress",
+    "detroitStyleCustomCandidate",
+    "retaliationConcerns"
+  ].join(",");
+  const qs = new URLSearchParams({
+    limit: "200",
+    order: "-updatedAt",
+    keys,
+    where: JSON.stringify(where)
+  }).toString();
+  const data = await back4AppRequest(
+    `/classes/${encodeURIComponent(referralSummaryClassName)}?${qs}`,
+    {
+      method: "GET",
+      headers: { "X-Parse-Session-Token": currentSessionToken }
+    }
+  );
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function renderSbpdCsvTable(rows) {
+  if (!sbpdCsvTableWrap) return;
+  if (!rows.length) {
+    sbpdCsvTableWrap.innerHTML = '<p class="small">No SBPD contacts in this window.</p>';
+    return;
+  }
+  const header = `
+    <table class="sbpd-csv-table" style="width:100%;border-collapse:collapse;margin-top:0.5rem;font-size:0.9rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #334155;width:36px;"></th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #334155;">Contact</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #334155;">Agency</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #334155;">Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  const body = rows
+    .map((r, i) => {
+      const id = escapeHtml(r.objectId || "");
+      const name = escapeHtml(r.clientName || "—");
+      const ag = escapeHtml(r.referralAgency || "—");
+      const u = r.updatedAt
+        ? escapeHtml(new Date(r.updatedAt).toLocaleString())
+        : "—";
+      return `<tr>
+        <td style="padding:6px;border-bottom:1px solid #1e293b;">
+          <input type="checkbox" class="sbpd-csv-row-cb" data-idx="${i}" checked aria-label="Include ${name}" />
+        </td>
+        <td style="padding:6px;border-bottom:1px solid #1e293b;">${name}</td>
+        <td style="padding:6px;border-bottom:1px solid #1e293b;">${ag}</td>
+        <td style="padding:6px;border-bottom:1px solid #1e293b;">${u}</td>
+      </tr>`;
+    })
+    .join("");
+  sbpdCsvTableWrap.innerHTML = `${header}${body}</tbody></table>`;
+}
+
+async function fetchSbpdCsvList() {
+  if (!currentSessionToken || authEnvMissing()) {
+    setStatus(sbpdCsvStatusEl, "Sign in first.", "#f87171");
+    return;
+  }
+  const days = Math.max(1, Math.min(365, Number(sbpdCsvDaysInput?.value || 14) || 14));
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  start.setHours(0, 0, 0, 0);
+  setStatus(sbpdCsvStatusEl, "Loading…", "#93c5fd");
+  try {
+    const rows = await fetchSbpdReferralSummariesForCsv(start.toISOString(), end.toISOString());
+    sbpdCsvFetchedRows = rows;
+    renderSbpdCsvTable(rows);
+    setStatus(
+      sbpdCsvStatusEl,
+      `${rows.length} SBPD contact(s) in the last ${days} day(s). Select rows and download CSV.`,
+      "#4ade80"
+    );
+  } catch (e) {
+    sbpdCsvFetchedRows = [];
+    if (sbpdCsvTableWrap) sbpdCsvTableWrap.innerHTML = "";
+    setStatus(sbpdCsvStatusEl, `Load failed: ${e.message}`, "#f87171");
+  }
+}
+
+function setAllSbpdCsvCheckboxes(checked) {
+  document.querySelectorAll(".sbpd-csv-row-cb").forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+function downloadSbpdCsv() {
+  if (!sbpdCsvFetchedRows.length) {
+    setStatus(sbpdCsvStatusEl, "Load SBPD contacts first.", "#f87171");
+    return;
+  }
+  const selected = [];
+  document.querySelectorAll(".sbpd-csv-row-cb").forEach((el) => {
+    if (!el.checked) return;
+    const idx = Number(el.getAttribute("data-idx"));
+    if (Number.isNaN(idx) || !sbpdCsvFetchedRows[idx]) return;
+    selected.push(sbpdCsvFetchedRows[idx]);
+  });
+  if (!selected.length) {
+    setStatus(sbpdCsvStatusEl, "Select at least one row.", "#f87171");
+    return;
+  }
+  const bom = "\ufeff";
+  const lines = [SBPD_CSV_HEADERS.map(escapeCsvCell).join(","), ...selected.map(referralSummaryRowToCsvLine)];
+  const blob = new Blob([bom + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `sbpd-referral-status-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(sbpdCsvStatusEl, `Downloaded CSV (${selected.length} row(s)).`, "#4ade80");
+}
+
+async function putSbpdPoliceFields(objectId, payload) {
+  if (!objectId || !currentSessionToken) return;
+  const enc = encodeURIComponent(referralSummaryClassName);
+  const body = {
+    lastModifiedBy: String(currentUser?.username || currentUser?.email || "unknown_user")
+  };
+  const d = String(payload.dateContactAttempted || "").trim();
+  if (d) {
+    body.dateContactAttempted = { __type: "Date", iso: new Date(`${d}T12:00:00`).toISOString() };
+  } else {
+    body.dateContactAttempted = null;
+  }
+  body.contactAttemptMade = normalizeYesNoString(payload.contactAttemptMade) || null;
+  body.contactMadeWithWhom = String(payload.contactMadeWithWhom || "").trim() || null;
+  body.sbpdAddressCorrect = normalizeYesNoString(payload.sbpdAddressCorrect) || null;
+  body.sbpdCorrectedAddress = String(payload.sbpdCorrectedAddress || "").trim() || null;
+  body.detroitStyleCustomCandidate = normalizeYesNoString(payload.detroitStyleCustomCandidate) || null;
+  body.retaliationConcerns = normalizeYesNoString(payload.retaliationConcerns) || null;
+  await back4AppRequest(`/classes/${enc}/${objectId}`, {
+    method: "PUT",
+    headers: {
+      "X-Parse-Session-Token": currentSessionToken,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+async function fetchCaseNotes(summaryObjectId) {
+  if (!summaryObjectId || !currentSessionToken) return [];
+  // Important: do NOT encode twice. URLSearchParams will encode the JSON for us.
+  const where = JSON.stringify({
+    referralSummary: {
+      __type: "Pointer",
+      className: referralSummaryClassName,
+      objectId: summaryObjectId
+    }
+  });
+  const qs = new URLSearchParams({
+    where,
+    limit: "100",
+    order: "-createdAt",
+    keys: "text,authorUsername,createdAt"
+  }).toString();
+  const data = await back4AppRequest(`/classes/${encodeURIComponent(caseNoteClassName)}?${qs}`, {
+    method: "GET",
+    headers: { "X-Parse-Session-Token": currentSessionToken }
+  });
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function renderNotesList(containerEl, notes) {
+  containerEl.innerHTML = "";
+  if (!notes.length) {
+    containerEl.innerHTML = '<div class="small">No notes yet.</div>';
+    return;
+  }
+  notes.forEach((n) => {
+    const item = document.createElement("div");
+    item.className = "note-item";
+    const when = n.createdAt ? new Date(n.createdAt).toLocaleString() : "";
+    const who = String(n.authorUsername || "").trim();
+    item.innerHTML = `
+      <div class="note-meta">${escapeHtml(who || "Unknown")} • ${escapeHtml(when)}</div>
+      <div class="note-text">${escapeHtml(n.text || "")}</div>
+    `;
+    containerEl.appendChild(item);
+  });
+}
+
+async function createCaseNote(summaryObjectId, text) {
+  if (!summaryObjectId || !currentSessionToken || !currentUser?.objectId) return;
+  const authorUsername = String(currentUser.username || currentUser.email || "unknown_user");
+  const payload = {
+    referralSummary: {
+      __type: "Pointer",
+      className: referralSummaryClassName,
+      objectId: summaryObjectId
+    },
+    author: {
+      __type: "Pointer",
+      className: "_User",
+      objectId: currentUser.objectId
+    },
+    authorUsername,
+    text: String(text || "").trim(),
+    ACL: {
+      "*": { read: true },
+      [currentUser.objectId]: { read: true, write: true }
+    }
+  };
+  await back4AppRequest(`/classes/${encodeURIComponent(caseNoteClassName)}`, {
+    method: "POST",
+    headers: {
+      "X-Parse-Session-Token": currentSessionToken,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
 }
 
 function renderRecords(records) {
@@ -671,6 +1669,224 @@ function renderRecords(records) {
       <div class="small">Agency: ${record.referralAgency || "N/A"} | Risk: ${record.riskLevel || "unknown"} | Assigned: ${record.assignedTo || "Unassigned"}</div>
       <div class="small">Updated: ${updatedStr}</div>
     `;
+
+    const actions = document.createElement("div");
+    actions.className = "record-actions";
+
+    const isContact = String(record.recordType || "").toLowerCase() === "contact";
+    if (isContact && record.objectId) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-secondary";
+      btn.textContent = "Convert to Client";
+      btn.addEventListener("click", () => convertSummaryContactToClient(record.objectId));
+      actions.appendChild(btn);
+    }
+
+    if (record.objectId) {
+      const toggleNotesBtn = document.createElement("button");
+      toggleNotesBtn.type = "button";
+      toggleNotesBtn.className = "btn-secondary";
+      toggleNotesBtn.textContent = "Notes";
+      actions.appendChild(toggleNotesBtn);
+
+      const notesWrap = document.createElement("div");
+      notesWrap.className = "notes-wrap hidden";
+
+      const noteInput = document.createElement("textarea");
+      noteInput.placeholder = "Add a note…";
+      noteInput.style.minHeight = "70px";
+
+      const noteActions = document.createElement("div");
+      noteActions.className = "record-actions";
+      noteActions.style.marginTop = "0.4rem";
+
+      const saveNoteBtn = document.createElement("button");
+      saveNoteBtn.type = "button";
+      saveNoteBtn.className = "btn-secondary";
+      saveNoteBtn.textContent = "Save note";
+
+      const noteStatus = document.createElement("div");
+      noteStatus.className = "small";
+      noteStatus.style.marginTop = "0.35rem";
+
+      const notesList = document.createElement("div");
+      notesList.className = "notes-list";
+
+      let loaded = false;
+      const loadAndRender = async () => {
+        noteStatus.textContent = "Loading notes...";
+        try {
+          const notes = await fetchCaseNotes(record.objectId);
+          renderNotesList(notesList, notes);
+          noteStatus.textContent = "";
+          loaded = true;
+        } catch (e) {
+          noteStatus.textContent = `Failed to load notes: ${e.message}`;
+        }
+      };
+
+      toggleNotesBtn.addEventListener("click", async () => {
+        notesWrap.classList.toggle("hidden");
+        if (!notesWrap.classList.contains("hidden") && !loaded) {
+          await loadAndRender();
+        }
+      });
+
+      saveNoteBtn.addEventListener("click", async () => {
+        const text = String(noteInput.value || "").trim();
+        if (!text) {
+          noteStatus.textContent = "Note text is required.";
+          return;
+        }
+        noteStatus.textContent = "Saving...";
+        try {
+          await createCaseNote(record.objectId, text);
+          noteInput.value = "";
+          await loadAndRender();
+          noteStatus.textContent = "Saved.";
+        } catch (e) {
+          noteStatus.textContent = `Save failed: ${e.message}`;
+        }
+      });
+
+      noteActions.appendChild(saveNoteBtn);
+      notesWrap.appendChild(noteInput);
+      notesWrap.appendChild(noteActions);
+      notesWrap.appendChild(noteStatus);
+      notesWrap.appendChild(notesList);
+
+      let sbpdWrap = null;
+      if (isSbpdAgency(record.referralAgency)) {
+        const oid = record.objectId;
+        const toggleSbpdBtn = document.createElement("button");
+        toggleSbpdBtn.type = "button";
+        toggleSbpdBtn.className = "btn-secondary";
+        toggleSbpdBtn.textContent = "SBPD fields";
+        toggleSbpdBtn.setAttribute("aria-expanded", "false");
+        actions.appendChild(toggleSbpdBtn);
+
+        sbpdWrap = document.createElement("div");
+        sbpdWrap.className = "notes-wrap sbpd-fields-wrap hidden";
+
+        const grid = document.createElement("div");
+        grid.className = "grid sbpd-fields-grid";
+
+        const d0 = sbpdDateValueForInput(record);
+        grid.innerHTML = `
+        <div class="field">
+          <label for="sbpd-date-${oid}">Date contact attempted</label>
+          <input type="date" id="sbpd-date-${oid}" />
+        </div>
+        <div class="field">
+          <label for="sbpd-contact-${oid}">Contact made?</label>
+          <select id="sbpd-contact-${oid}">
+            <option value="">—</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label for="sbpd-whom-${oid}">If yes, with whom</label>
+          <input type="text" id="sbpd-whom-${oid}" />
+        </div>
+        <div class="field">
+          <label for="sbpd-addr-ok-${oid}">SBPD address correct?</label>
+          <select id="sbpd-addr-ok-${oid}">
+            <option value="">—</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label for="sbpd-addr-fix-${oid}">Correct address (if needed)</label>
+          <textarea id="sbpd-addr-fix-${oid}" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label for="sbpd-detroit-${oid}">Detroit-style custom?</label>
+          <select id="sbpd-detroit-${oid}">
+            <option value="">—</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sbpd-retaliation-${oid}">Retaliation concerns?</label>
+          <select id="sbpd-retaliation-${oid}">
+            <option value="">—</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+      `;
+        sbpdWrap.appendChild(grid);
+
+        sbpdWrap.querySelector(`#sbpd-date-${oid}`).value = d0;
+        const pickYn = (v) =>
+          normalizeYesNoString(v) === "Yes"
+            ? "Yes"
+            : normalizeYesNoString(v) === "No"
+              ? "No"
+              : "";
+        sbpdWrap.querySelector(`#sbpd-contact-${oid}`).value = pickYn(record.contactAttemptMade);
+        sbpdWrap.querySelector(`#sbpd-whom-${oid}`).value = String(record.contactMadeWithWhom || "");
+        sbpdWrap.querySelector(`#sbpd-addr-ok-${oid}`).value = pickYn(record.sbpdAddressCorrect);
+        sbpdWrap.querySelector(`#sbpd-addr-fix-${oid}`).value = String(record.sbpdCorrectedAddress || "");
+        sbpdWrap.querySelector(`#sbpd-detroit-${oid}`).value = pickYn(record.detroitStyleCustomCandidate);
+        sbpdWrap.querySelector(`#sbpd-retaliation-${oid}`).value = pickYn(record.retaliationConcerns);
+
+        const sbpdActions = document.createElement("div");
+        sbpdActions.className = "record-actions";
+        sbpdActions.style.marginTop = "0.45rem";
+        const saveSbpdBtn = document.createElement("button");
+        saveSbpdBtn.type = "button";
+        saveSbpdBtn.className = "btn-secondary";
+        saveSbpdBtn.textContent = "Save";
+        const sbpdStatus = document.createElement("div");
+        sbpdStatus.className = "small";
+        sbpdStatus.style.marginTop = "0.3rem";
+
+        saveSbpdBtn.addEventListener("click", async () => {
+          sbpdStatus.textContent = "Saving…";
+          sbpdStatus.style.color = "#93c5fd";
+          try {
+            await putSbpdPoliceFields(oid, {
+              dateContactAttempted: sbpdWrap.querySelector(`#sbpd-date-${oid}`).value,
+              contactAttemptMade: sbpdWrap.querySelector(`#sbpd-contact-${oid}`).value,
+              contactMadeWithWhom: sbpdWrap.querySelector(`#sbpd-whom-${oid}`).value,
+              sbpdAddressCorrect: sbpdWrap.querySelector(`#sbpd-addr-ok-${oid}`).value,
+              sbpdCorrectedAddress: sbpdWrap.querySelector(`#sbpd-addr-fix-${oid}`).value,
+              detroitStyleCustomCandidate: sbpdWrap.querySelector(`#sbpd-detroit-${oid}`).value,
+              retaliationConcerns: sbpdWrap.querySelector(`#sbpd-retaliation-${oid}`).value
+            });
+            sbpdStatus.textContent = "Saved.";
+            sbpdStatus.style.color = "#4ade80";
+            await loadRecentRecords();
+          } catch (e) {
+            sbpdStatus.textContent = e.message || "Save failed.";
+            sbpdStatus.style.color = "#f87171";
+          }
+        });
+
+        sbpdActions.appendChild(saveSbpdBtn);
+        sbpdWrap.appendChild(sbpdActions);
+        sbpdWrap.appendChild(sbpdStatus);
+
+        toggleSbpdBtn.addEventListener("click", () => {
+          sbpdWrap.classList.toggle("hidden");
+          toggleSbpdBtn.setAttribute(
+            "aria-expanded",
+            sbpdWrap.classList.contains("hidden") ? "false" : "true"
+          );
+        });
+      }
+
+      if (actions.childNodes.length) item.appendChild(actions);
+      item.appendChild(notesWrap);
+      if (sbpdWrap) item.appendChild(sbpdWrap);
+    } else if (actions.childNodes.length) {
+      item.appendChild(actions);
+    }
     recordsEl.appendChild(item);
   });
 }
@@ -777,13 +1993,14 @@ async function loadRecentRecords() {
     recordsEl.innerHTML = '<div class="record">Sign in to load recent records.</div>';
     return;
   }
+  setStatus(recordsStatusEl, "");
   try {
     await fetchOrgSettings();
     syncInactiveSettingsUI();
     const query = new URLSearchParams({
       limit: "50",
       order: "-updatedAt",
-      keys: "objectId,clientName,recordType,role,riskLevel,referralAgency,recordStatus,assignedTo,assignedToUsername,lastModifiedBy,updatedAt,createdAt"
+      keys: "objectId,clientName,recordType,role,riskLevel,referralAgency,recordStatus,assignedTo,assignedToUsername,lastModifiedBy,updatedAt,createdAt,dateContactAttempted,contactAttemptMade,contactMadeWithWhom,sbpdAddressCorrect,sbpdCorrectedAddress,detroitStyleCustomCandidate,retaliationConcerns"
     });
     const url = `/classes/${encodeURIComponent(referralSummaryClassName)}?${query.toString()}`;
     const data = await back4AppRequest(url, {
@@ -1176,6 +2393,8 @@ function getFormPayload(form) {
   payload.clientNameLower = normalizeName(payload.clientName);
   payload.additionalInfo = payload.additionalInfo?.trim() || "";
   payload.charges = payload.charges?.trim() || "";
+  payload.contactMadeWithWhom = String(payload.contactMadeWithWhom || "").trim();
+  payload.sbpdCorrectedAddress = String(payload.sbpdCorrectedAddress || "").trim();
   payload.recordStatus = "active";
   payload.lastModifiedBy = currentUser?.username || currentUser?.email || "unknown_user";
   const self = String(currentUser?.username || currentUser?.email || "").trim();
@@ -1206,6 +2425,14 @@ async function saveReferral(event) {
     setStatus(intakeStatusEl, "Client name is required.", "#f87171");
     return;
   }
+
+  // Prevent creating duplicates by checking similar names in the Sheets archive.
+  const dup = await checkPossibleDuplicate(payload.clientName);
+  if (dup) {
+    setStatus(intakeStatusEl, "Possible duplicate found. Review the name before saving.", "#facc15");
+    return;
+  }
+
   setStatus(intakeStatusEl, "Saving referral...", "#93c5fd");
   try {
     await sheetsApiRequest("POST", {
@@ -1295,9 +2522,14 @@ async function bootstrapSession() {
 }
 
 function handleLogout() {
+  lastTimeReportExport = null;
+  sbpdCsvFetchedRows = [];
+  if (sbpdCsvTableWrap) sbpdCsvTableWrap.innerHTML = "";
+  setStatus(sbpdCsvStatusEl, "");
   clearSession();
   intakeForm.reset();
   recordsEl.innerHTML = "";
+  setStatus(recordsStatusEl, "");
   duplicateWarningEl.textContent = "";
   setStatus(intakeStatusEl, "");
   orgSettingsObjectId = null;
@@ -1315,6 +2547,31 @@ intakeForm?.addEventListener("submit", saveReferral);
 timelogForm?.addEventListener("submit", saveTimeLogEntry);
 addTimeCategoryBtn?.addEventListener("click", () => addTimeCategory());
 saveInactiveSettingsBtn?.addEventListener("click", () => saveOrgSettingsFromUI());
+reportPeriodTypeSelect?.addEventListener("change", () => {
+  const isCustom = reportPeriodTypeSelect.value === "custom";
+  reportEndDateWrap?.classList.toggle("hidden", !isCustom);
+});
+if (reportStartDateInput && !reportStartDateInput.value) {
+  reportStartDateInput.value = new Date().toISOString().slice(0, 10);
+}
+reportPeriodTypeSelect?.dispatchEvent(new Event("change"));
+generateReportBtn?.addEventListener("click", () => generateReportPreview());
+exportReportPdfBtn?.addEventListener("click", () => exportReportPdfViaPrint());
+timeReportPeriodTypeSelect?.addEventListener("change", () => {
+  const isCustom = timeReportPeriodTypeSelect.value === "custom";
+  timeReportEndDateWrap?.classList.toggle("hidden", !isCustom);
+});
+if (timeReportStartDateInput && !timeReportStartDateInput.value) {
+  timeReportStartDateInput.value = new Date().toISOString().slice(0, 10);
+}
+timeReportPeriodTypeSelect?.dispatchEvent(new Event("change"));
+generateTimeReportBtn?.addEventListener("click", () => generateTimeReportPreview());
+exportTimeReportPdfBtn?.addEventListener("click", () => exportTimeReportPdfViaPrint());
+exportTimeReportJpgBtn?.addEventListener("click", () => exportTimeReportJpg());
+sbpdCsvFetchBtn?.addEventListener("click", () => fetchSbpdCsvList());
+sbpdCsvDownloadBtn?.addEventListener("click", () => downloadSbpdCsv());
+sbpdCsvSelectAllBtn?.addEventListener("click", () => setAllSbpdCsvCheckboxes(true));
+sbpdCsvDeselectAllBtn?.addEventListener("click", () => setAllSbpdCsvCheckboxes(false));
 document.getElementById("clientName")?.addEventListener("blur", (event) => {
   checkPossibleDuplicate(event.target.value);
 });
