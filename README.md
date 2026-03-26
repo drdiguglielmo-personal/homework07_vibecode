@@ -25,6 +25,17 @@ Build:
 npm run build
 ```
 
+## Netlify + GitHub (when the live site looks “old”)
+
+Vite **bakes in** `VITE_*` variables at **build** time. Set them in **Netlify → Site configuration → Environment variables**, then run **Deploys → Trigger deploy → Clear cache and deploy site**. A plain `.env` on your laptop is **not** sent to GitHub/Netlify unless you commit it (not recommended for secrets).
+
+If GitHub has your latest code but the site does not:
+
+1. **Branch** — Netlify **Build & deploy → Branch to deploy** must be the branch you push (e.g. `main` vs `master`).
+2. **Latest deploy = latest commit** — Open the deploy on Netlify and confirm the commit matches GitHub (`git log -1`). If not, reconnect the repo or trigger a manual deploy.
+3. **Verify the build** — After deploy, use **View Page Source** on the live site and search for `x-build-commit`. The `content` attribute should match that Git commit SHA (injected at build on Netlify).
+4. **Hard refresh** — Try a private/incognito window so you are not seeing a cached old `index.html`.
+
 ## Core workflow
 
 1. User signs in/registers with Back4App.

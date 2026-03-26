@@ -16,7 +16,21 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  /** Netlify sets COMMIT_REF during `npm run build`; empty locally. View source on the live site to verify deploy. */
+  const buildCommit = process.env.COMMIT_REF || process.env.CACHED_COMMIT_REF || "";
+
   return {
+    plugins: [
+      {
+        name: "inject-build-commit-meta",
+        transformIndexHtml(html) {
+          return html.replace(
+            "</head>",
+            `<meta name="x-build-commit" content="${buildCommit}" />\n</head>`
+          );
+        }
+      }
+    ],
     server: sheetsOrigin && sheetsPathname
       ? {
           proxy: {
